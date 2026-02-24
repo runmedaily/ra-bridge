@@ -166,11 +166,13 @@ pub async fn start(
                     };
 
                     if let Some(id) = id {
-                        // Immediate echo for SetOutput — HA expects fast ~OUTPUT confirmation
+                        // Update zone level cache for web UI (don't echo to
+                        // telnet — pylutron updates its own cache immediately,
+                        // and the Savant set-echo + polls provide the real
+                        // hardware confirmation. Echoing here caused HA to
+                        // think the light was already at the target level,
+                        // swallowing subsequent commands.)
                         if let Ra2Command::SetOutput { id: set_id, level, .. } = &cmd {
-                            let echo = Ra2Event::OutputLevel { id: *set_id, level: *level };
-                            info!("bridge → HA (echo): ~OUTPUT,{},1,{:.2}", set_id, level);
-                            let _ = ra2_event_tx.send(echo);
                             zone_levels.write().await.insert(*set_id, *level);
                         }
 
