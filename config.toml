@@ -1,0 +1,16 @@
+[processor]
+host = "10.20.30.142"
+leap_port = 8081
+
+[telnet]
+port = 6023
+
+[[zones]]
+ra2_id = 1
+leap_href = "/zone/5"
+name = "Kitchen Main"
+
+[[zones]]
+ra2_id = 2
+leap_href = "/zone/8"
+name = "Living Room"
