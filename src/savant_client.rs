@@ -311,13 +311,15 @@ fn encode_request(req: &SavantRequest) -> serde_json::Value {
             let load_key = (int_address << 16) | (*load_offset as u32 & 1023);
             let hex_key = format!("{:x}", load_key);
 
-            // Value format: "<level>%" (0-100 scale, no fade suffix)
-            // Savant state/set expects plain percentage — the ".0" fade suffix
-            // caused ON commands to fail (OFF worked because 0% is always "off")
+            // Binary switch mode: any non-zero level → 100% (on), zero → 0% (off)
+            // Savant switch relays only respond to 0% and 100% — intermediate
+            // values update state but don't physically toggle the relay.
+            // TODO: add per-zone dimmer/switch flag for proper dimmer support
+            let savant_level = if *level > 0.0 { 100 } else { 0 };
             serde_json::json!({
                 "messages": [{
                     "state": format!("load.{}", hex_key),
-                    "value": format!("{}%", level.round() as u32)
+                    "value": format!("{}%", savant_level)
                 }],
                 "URI": "state/set"
             })
