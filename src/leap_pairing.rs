@@ -339,8 +339,14 @@ fn build_pairing_tls_connector() -> Result<TlsConnector> {
         .ok_or_else(|| anyhow::anyhow!("No RSA key found in LAP key PEM"))?
         .context("Failed to parse LAP RSA key")?;
 
+    let verifier = Arc::new(
+        crate::leap_client::NoHostnameVerification::new(Arc::new(root_store))
+            .context("Failed to build pairing cert verifier")?,
+    );
+
     let config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
+        .dangerous()
+        .with_custom_certificate_verifier(verifier)
         .with_client_auth_cert(
             client_certs,
             rustls::pki_types::PrivateKeyDer::Pkcs1(client_key),

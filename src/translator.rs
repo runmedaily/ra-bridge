@@ -7,18 +7,31 @@ pub fn ra2_to_leap(cmd: &Ra2Command, map: &IdMap) -> Option<LeapRequest> {
     match cmd {
         Ra2Command::SetOutput { id, level, fade } => {
             let href = map.ra2_to_leap(*id)?;
-            let url = format!("{}/commandtype/GoToLevel", href);
+            let url = format!("{}/commandprocessor", href);
 
-            let mut go_to_level = serde_json::json!({
-                "Level": level,
-            });
-            if let Some(fade_time) = fade {
-                go_to_level["FadeTime"] = format!("{}:{}:{}.000",
+            let body = if let Some(fade_time) = fade {
+                let fade_str = format!("{:02}:{:02}:{:02}",
                     (*fade_time as u64) / 3600,
                     ((*fade_time as u64) % 3600) / 60,
                     (*fade_time as u64) % 60,
-                ).into();
-            }
+                );
+                serde_json::json!({
+                    "Command": {
+                        "CommandType": "GoToDimmedLevel",
+                        "DimmedLevelParameters": {
+                            "Level": level,
+                            "FadeTime": fade_str,
+                        }
+                    }
+                })
+            } else {
+                serde_json::json!({
+                    "Command": {
+                        "CommandType": "GoToLevel",
+                        "Parameter": [{"Type": "Level", "Value": level}]
+                    }
+                })
+            };
 
             Some(LeapRequest {
                 communique_type: "CreateRequest".to_string(),
@@ -27,9 +40,7 @@ pub fn ra2_to_leap(cmd: &Ra2Command, map: &IdMap) -> Option<LeapRequest> {
                     client_tag: None,
                     extra: serde_json::Map::new(),
                 },
-                body: Some(serde_json::json!({
-                    "GoToLevelCommand": go_to_level,
-                })),
+                body: Some(body),
             })
         }
         Ra2Command::QueryOutput { id } => {
@@ -116,9 +127,10 @@ mod tests {
         };
         let req = ra2_to_leap(&cmd, &map).unwrap();
         assert_eq!(req.communique_type, "CreateRequest");
-        assert_eq!(req.header.url, "/zone/5/commandtype/GoToLevel");
+        assert_eq!(req.header.url, "/zone/5/commandprocessor");
         let body = req.body.unwrap();
-        assert_eq!(body["GoToLevelCommand"]["Level"], 75.0);
+        assert_eq!(body["Command"]["CommandType"], "GoToLevel");
+        assert_eq!(body["Command"]["Parameter"][0]["Value"], 75.0);
     }
 
     #[test]

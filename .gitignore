@@ -1,4 +1,13 @@
 /target
 /result
-certs/*.pem
-certs/*.key
+
+# Pairing certificates (sensitive — send manually)
+certs/
+
+# Site-specific config
+config.toml
+config.toml.bak
+DbXmlInfo.xml
+
+# One-off scripts
+toml2xml.py

@@ -1,7 +1,7 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub processor: ProcessorConfig,
     #[serde(default)]
@@ -10,20 +10,20 @@ pub struct Config {
     pub zones: Vec<ZoneMapping>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ProcessorConfig {
     pub host: String,
     #[serde(default = "default_leap_port")]
     pub leap_port: u16,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TelnetConfig {
     #[serde(default = "default_telnet_port")]
     pub port: u16,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct ZoneMapping {
     pub ra2_id: u32,

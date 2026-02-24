@@ -3,12 +3,73 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::client::WebPkiServerVerifier;
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc};
 use tokio_rustls::TlsConnector;
 use tracing::{error, info, warn};
+
+/// TLS certificate verifier that validates the chain but skips hostname checking.
+/// Lutron processors use DNS-based names in their certs (e.g. "radiora3-xxxx-server")
+/// but are connected to by IP address.
+#[derive(Debug)]
+pub struct NoHostnameVerification {
+    inner: Arc<WebPkiServerVerifier>,
+}
+
+impl NoHostnameVerification {
+    pub fn new(root_store: Arc<rustls::RootCertStore>) -> Result<Self> {
+        let inner = WebPkiServerVerifier::builder(root_store)
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build WebPki verifier: {}", e))?;
+        Ok(Self { inner })
+    }
+}
+
+impl ServerCertVerifier for NoHostnameVerification {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp: &[u8],
+        now: UnixTime,
+    ) -> std::result::Result<ServerCertVerified, rustls::Error> {
+        match self.inner.verify_server_cert(end_entity, intermediates, server_name, ocsp, now) {
+            Ok(v) => Ok(v),
+            Err(ref e) if e.to_string().contains("not valid for name") => {
+                Ok(ServerCertVerified::assertion())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+        self.inner.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+        self.inner.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.inner.supported_verify_schemes()
+    }
+}
 
 /// A LEAP request to send to the processor.
 #[derive(Debug, Clone, Serialize)]
@@ -109,12 +170,52 @@ pub fn build_leap_tls_connector(certs_dir: &Path) -> Result<TlsConnector> {
         }
     };
 
+    let verifier = Arc::new(
+        NoHostnameVerification::new(Arc::new(root_store))
+            .context("Failed to build LEAP cert verifier")?,
+    );
+
     let config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
+        .dangerous()
+        .with_custom_certificate_verifier(verifier)
         .with_client_auth_cert(client_certs, client_key)
         .context("Failed to build LEAP TLS config")?;
 
     Ok(TlsConnector::from(Arc::new(config)))
+}
+
+/// Send a single LEAP request and return the response. Connects, sends, reads one line, disconnects.
+pub async fn one_shot_request(
+    host: &str,
+    port: u16,
+    certs_dir: &Path,
+    request: &LeapRequest,
+) -> Result<LeapEvent> {
+    let connector = build_leap_tls_connector(certs_dir)?;
+    let tcp = TcpStream::connect((host, port)).await?;
+    let server_name = rustls::pki_types::ServerName::try_from(host.to_string())
+        .unwrap_or_else(|_| {
+            rustls::pki_types::ServerName::IpAddress(
+                host.parse::<std::net::IpAddr>()
+                    .expect("Invalid host address")
+                    .into(),
+            )
+        });
+    let tls = connector.connect(server_name, tcp).await?;
+
+    let (reader, mut writer) = tokio::io::split(tls);
+    let mut reader = tokio::io::BufReader::new(reader);
+
+    let mut msg = serde_json::to_string(request)?;
+    msg.push_str("\r\n");
+    writer.write_all(msg.as_bytes()).await?;
+
+    let mut line = String::new();
+    reader.read_line(&mut line).await?;
+    let event: LeapEvent = serde_json::from_str(line.trim())
+        .with_context(|| format!("Failed to parse LEAP response: {}", line.trim()))?;
+
+    Ok(event)
 }
 
 /// Run the LEAP client. Sends requests from `req_rx`, publishes events on `event_tx`.
@@ -178,8 +279,10 @@ async fn connect_and_run(
     writer.write_all(msg.as_bytes()).await?;
     info!("Subscribed to zone status events");
 
-    // Reset backoff on successful connection
     let mut line = String::new();
+    let ping_interval = tokio::time::Duration::from_secs(15);
+    let mut ping_timer = tokio::time::interval(ping_interval);
+    ping_timer.tick().await; // consume the immediate first tick
 
     loop {
         tokio::select! {
@@ -205,6 +308,16 @@ async fn connect_and_run(
             // Send requests to processor
             Some(req) = req_rx.recv() => {
                 let mut msg = serde_json::to_string(&req)?;
+                msg.push_str("\r\n");
+                writer.write_all(msg.as_bytes()).await?;
+            }
+            // Keepalive ping every 15s
+            _ = ping_timer.tick() => {
+                let ping = serde_json::json!({
+                    "CommuniqueType": "ReadRequest",
+                    "Header": {"Url": "/server/1/status/ping"}
+                });
+                let mut msg = serde_json::to_string(&ping)?;
                 msg.push_str("\r\n");
                 writer.write_all(msg.as_bytes()).await?;
             }
