@@ -188,6 +188,11 @@ fn handle_savant_message(
 
     let uri = msg["URI"].as_str().unwrap_or_default();
 
+    // Log all non-poll Savant messages for debugging (polls are noisy)
+    if uri == "state/set" || uri.contains("state/update") {
+        info!("Savant RX raw: {}", text);
+    }
+
     // Log rejected messages for debugging
     if uri == "messageReject" {
         if let Some(messages) = msg.get("messages").and_then(|m| m.as_array()) {
@@ -306,11 +311,13 @@ fn encode_request(req: &SavantRequest) -> serde_json::Value {
             let load_key = (int_address << 16) | (*load_offset as u32 & 1023);
             let hex_key = format!("{:x}", load_key);
 
-            // Value format: "<level>%.0" (0-100 scale, .0 = instant/no fade)
+            // Value format: "<level>%" (0-100 scale, no fade suffix)
+            // Savant state/set expects plain percentage — the ".0" fade suffix
+            // caused ON commands to fail (OFF worked because 0% is always "off")
             serde_json::json!({
                 "messages": [{
                     "state": format!("load.{}", hex_key),
-                    "value": format!("{}%.0", level.round() as u32)
+                    "value": format!("{}%", level.round() as u32)
                 }],
                 "URI": "state/set"
             })
