@@ -37,7 +37,7 @@ in {
       description = "ra-bridge RadioRA 2 protocol bridge";
       wantedBy = [ "multi-user.target" ];
       after = [ "network-online.target" "ra-bridge-nat.service" ];
-      wants = [ "ra-bridge-nat.service" ];
+      wants = [ "network-online.target" "ra-bridge-nat.service" ];
       serviceConfig = {
         ExecStart = "${pkg}/bin/ra-bridge serve --config ${cfg.dataDir}/config.toml --certs-dir ${cfg.dataDir}/certs --web-port ${toString cfg.webPort}";
         Restart = "on-failure";

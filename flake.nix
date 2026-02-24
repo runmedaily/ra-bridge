@@ -17,8 +17,17 @@
           toolchain = fenix.packages.${system}.stable.toolchain;
           craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
 
+          src = let
+            htmlFilter = path: _type: builtins.match ".*\\.html$" path != null;
+            htmlOrCargo = path: type:
+              (htmlFilter path type) || (craneLib.filterCargoSources path type);
+          in pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter = htmlOrCargo;
+          };
+
           ra-bridge = craneLib.buildPackage {
-            src = craneLib.cleanCargoSource ./.;
+            inherit src;
             strictDeps = true;
           };
         in
