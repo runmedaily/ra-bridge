@@ -9,5 +9,11 @@ config.toml
 config.toml.bak
 DbXmlInfo.xml
 
+# Dev mode site profiles
+sites/
+
 # One-off scripts
 toml2xml.py
+
+# Internal docs / dev notes
+docs/

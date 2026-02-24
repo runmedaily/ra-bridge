@@ -104,13 +104,26 @@ pub fn write_config(
         warn!("Backed up existing config to {}", bak.display());
     }
 
+    // Preserve existing Savant config if present
+    let (existing_savant, existing_savant_zones) = if path.exists() {
+        match Config::load(path) {
+            Ok(old) => (old.savant, old.savant_zones),
+            Err(_) => (None, vec![]),
+        }
+    } else {
+        (None, vec![])
+    };
+
     let config = Config {
         processor: ProcessorConfig {
             host: host.to_string(),
             leap_port: port,
         },
         telnet: TelnetConfig::default(),
+        web: Default::default(),
         zones: zones.to_vec(),
+        savant: existing_savant,
+        savant_zones: existing_savant_zones,
     };
 
     let toml_str = toml::to_string_pretty(&config).context("Failed to serialize config")?;

@@ -10,24 +10,38 @@
   };
 
   outputs = { self, nixpkgs, fenix, crane, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = nixpkgs.legacyPackages.${system};
-        toolchain = fenix.packages.${system}.stable.toolchain;
-        craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
+    let
+      perSystem = flake-utils.lib.eachDefaultSystem (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          toolchain = fenix.packages.${system}.stable.toolchain;
+          craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
 
-        ra-bridge = craneLib.buildPackage {
-          src = craneLib.cleanCargoSource ./.;
-          strictDeps = true;
-        };
-      in
-      {
-        packages.default = ra-bridge;
+          ra-bridge = craneLib.buildPackage {
+            src = craneLib.cleanCargoSource ./.;
+            strictDeps = true;
+          };
+        in
+        {
+          packages.default = ra-bridge;
 
-        devShells.default = craneLib.devShell {
-          packages = with pkgs; [
-            rust-analyzer
-          ];
-        };
-      });
+          devShells.default = craneLib.devShell {
+            packages = with pkgs; [
+              rust-analyzer
+              wl-clipboard
+            ];
+            shellHook = ''
+              yank() {
+                eval "$@"
+                local rc=$?
+                kitty @ get-text --extent last_cmd_output | wl-copy
+                return $rc
+              }
+            '';
+          };
+        });
+    in
+    perSystem // {
+      nixosModules.ra-bridge = import ./nix/module.nix self;
+    };
 }

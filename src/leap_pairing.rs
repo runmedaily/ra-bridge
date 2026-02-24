@@ -146,6 +146,210 @@ rgZOI7EiN4DPfTTpXoWVmIpiB/ouKp6uZ/Zrq00WthT8lUaBsFYaC3FDkkcxwdkk
 lJ+cvdbUdsU=
 -----END CERTIFICATE-----"#;
 
+/// Run the pairing flow with progress reporting via a watch channel.
+/// Used by the web UI to stream pairing status via SSE.
+pub async fn pair_with_progress(
+    host: &str,
+    certs_dir: &Path,
+    config_path: &Path,
+    leap_port: u16,
+    status_tx: tokio::sync::watch::Sender<crate::state::PairingStatus>,
+) -> Result<()> {
+    use crate::state::PairingStatus;
+
+    std::fs::create_dir_all(certs_dir)?;
+
+    let _ = status_tx.send(PairingStatus::GeneratingKeys);
+    info!("Generating RSA-2048 key pair...");
+    let rsa_key = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048)
+        .context("Failed to generate RSA key")?;
+    let key_der = rsa_key
+        .to_pkcs8_der()
+        .context("Failed to encode key to PKCS8 DER")?;
+    let key_pair = KeyPair::try_from(key_der.as_bytes())
+        .context("Failed to create rcgen KeyPair from RSA key")?;
+
+    let mut params = CertificateParams::default();
+    let mut dn = DistinguishedName::new();
+    dn.push(rcgen::DnType::CommonName, "ra-bridge");
+    params.distinguished_name = dn;
+
+    let csr = params
+        .serialize_request(&key_pair)
+        .context("Failed to generate CSR")?;
+    let csr_pem = csr.pem().context("Failed to encode CSR as PEM")?;
+
+    let key_path = certs_dir.join("ra-bridge.key");
+    std::fs::write(&key_path, key_pair.serialize_pem())?;
+
+    let _ = status_tx.send(PairingStatus::ConnectingToProcessor);
+    info!("Connecting to {}:{} for pairing...", host, PAIRING_PORT);
+
+    let tls_connector = build_pairing_tls_connector()?;
+    let tcp = TcpStream::connect((host, PAIRING_PORT)).await?;
+    let server_name = rustls::pki_types::ServerName::try_from(host.to_string())
+        .unwrap_or_else(|_| rustls::pki_types::ServerName::IpAddress(
+            host.parse::<std::net::IpAddr>()
+                .expect("Invalid host address")
+                .into(),
+        ));
+    let tls = tls_connector.connect(server_name, tcp).await
+        .context("TLS connection to pairing port failed")?;
+
+    info!("Connected! Waiting for button press...");
+
+    let timeout_secs = BUTTON_TIMEOUT_SECS;
+    let timeout = tokio::time::Duration::from_secs(timeout_secs);
+    let (reader, mut writer) = tokio::io::split(tls);
+    let mut reader = tokio::io::BufReader::new(reader);
+
+    // Countdown loop with progress updates
+    let status_tx_clone = status_tx.clone();
+    let start_time = tokio::time::Instant::now();
+    let got_access = tokio::time::timeout(timeout, async {
+        let mut line = String::new();
+        let mut tick = tokio::time::interval(tokio::time::Duration::from_secs(1));
+        tick.tick().await; // consume first tick
+
+        loop {
+            tokio::select! {
+                result = reader.read_line(&mut line) => {
+                    let n = result?;
+                    if n == 0 {
+                        bail!("Connection closed before receiving PhysicalAccess");
+                    }
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                            if let Some(perms) = v.pointer("/Body/Status/Permissions") {
+                                if let Some(arr) = perms.as_array() {
+                                    for p in arr {
+                                        if p.as_str() == Some("PhysicalAccess") {
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    line.clear();
+                }
+                _ = tick.tick() => {
+                    let elapsed = start_time.elapsed().as_secs();
+                    let _ = status_tx_clone.send(PairingStatus::WaitingForButtonPress {
+                        elapsed,
+                        timeout: timeout_secs,
+                    });
+                }
+            }
+        }
+    })
+    .await;
+
+    match got_access {
+        Ok(Ok(())) => {
+            let _ = status_tx.send(PairingStatus::ButtonPressed);
+            info!("Physical access granted!");
+        }
+        Ok(Err(e)) => {
+            let _ = status_tx.send(PairingStatus::Failed { message: e.to_string() });
+            bail!("Error waiting for physical access: {}", e);
+        }
+        Err(_) => {
+            let msg = format!("Timeout waiting for button press ({} seconds)", timeout_secs);
+            let _ = status_tx.send(PairingStatus::Failed { message: msg.clone() });
+            bail!("{}", msg);
+        }
+    }
+
+    let _ = status_tx.send(PairingStatus::ReceivingCertificate);
+
+    // Send CSR
+    let pair_request = serde_json::json!({
+        "Header": {
+            "RequestType": "Execute",
+            "Url": "/pair",
+            "ClientTag": "get-cert"
+        },
+        "Body": {
+            "CommandType": "CSR",
+            "Parameters": {
+                "CSR": csr_pem,
+                "DisplayName": "ra-bridge",
+                "DeviceUID": "000000000000",
+                "Role": "Admin"
+            }
+        }
+    });
+    let mut msg = serde_json::to_string(&pair_request)?;
+    msg.push_str("\r\n");
+    writer.write_all(msg.as_bytes()).await?;
+
+    // Read response with signed cert
+    let mut line = String::new();
+    let cert_response = tokio::time::timeout(
+        tokio::time::Duration::from_secs(10),
+        async {
+            loop {
+                line.clear();
+                let n = reader.read_line(&mut line).await?;
+                if n == 0 {
+                    bail!("Connection closed before receiving certificate");
+                }
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let v: serde_json::Value = serde_json::from_str(trimmed)?;
+                if v.pointer("/Body/SigningResult").is_some() {
+                    return Ok(v);
+                }
+            }
+        },
+    )
+    .await
+    .context("Timeout waiting for certificate response")?
+    .context("Error reading certificate response")?;
+
+    let signed_cert = cert_response
+        .pointer("/Body/SigningResult/Certificate")
+        .and_then(|v| v.as_str())
+        .context("Missing Certificate in response")?;
+    let root_cert = cert_response
+        .pointer("/Body/SigningResult/RootCertificate")
+        .and_then(|v| v.as_str());
+
+    let cert_path = certs_dir.join("ra-bridge.crt");
+    std::fs::write(&cert_path, signed_cert)?;
+
+    let ca_path = certs_dir.join("ca.crt");
+    let ca_pem = if let Some(rc) = root_cert {
+        rc.to_string()
+    } else {
+        LUTRON_ROOT_CA_PEM.to_string()
+    };
+    std::fs::write(&ca_path, &ca_pem)?;
+
+    // Verify pairing
+    let _ = status_tx.send(PairingStatus::VerifyingPairing);
+    if let Err(e) = verify_pairing(host, certs_dir).await {
+        warn!("Verification failed: {}. You may need to re-pair.", e);
+    }
+
+    // Discover zones
+    let _ = status_tx.send(PairingStatus::DiscoveringZones);
+    info!("Discovering zones...");
+    let zones = crate::discover::discover_zones(host, leap_port, certs_dir).await?;
+    info!("Found {} zones", zones.len());
+
+    crate::discover::write_config(config_path, host, leap_port, &zones)?;
+    info!("Wrote {}", config_path.display());
+
+    let _ = status_tx.send(PairingStatus::Complete { zone_count: zones.len() });
+
+    Ok(())
+}
+
 /// Run the one-time pairing flow with a Lutron RA3 processor.
 pub async fn pair(host: &str, certs_dir: &Path) -> Result<()> {
     std::fs::create_dir_all(certs_dir)?;

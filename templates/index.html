@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ra-bridge</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --surface2: #0f3460;
+  --accent: #e94560;
+  --text: #eee;
+  --text2: #aaa;
+  --green: #4ecca3;
+  --red: #e94560;
+  --yellow: #f0c040;
+  --border: #2a2a4a;
+  --radius: 6px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; background: var(--bg); color: var(--text); min-height: 100vh; }
+header { background: var(--surface); padding: 1rem 1.5rem; display: flex; align-items: center; gap: 1rem; border-bottom: 1px solid var(--border); }
+header h1 { font-size: 1.3rem; font-weight: 600; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.status-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.status-dot.red { background: var(--red); }
+.status-dot.yellow { background: var(--yellow); animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: 0.5; } }
+.host-label { color: var(--text2); font-size: 0.85rem; margin-left: auto; }
+nav { background: var(--surface); display: flex; gap: 0; border-bottom: 1px solid var(--border); }
+nav button { background: none; border: none; color: var(--text2); padding: 0.7rem 1.2rem; cursor: pointer; font-size: 0.9rem; border-bottom: 2px solid transparent; transition: all 0.2s; }
+nav button:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+main { max-width: 1000px; margin: 0 auto; padding: 1.5rem; }
+.tab { display: none; }
+.tab.active { display: block; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.2rem; margin-bottom: 1rem; }
+.card h2 { font-size: 1.1rem; margin-bottom: 0.8rem; color: var(--text); }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.8rem; }
+.stat { text-align: center; }
+.stat .value { font-size: 1.6rem; font-weight: 700; color: var(--green); }
+.stat .label { font-size: 0.75rem; color: var(--text2); margin-top: 0.2rem; }
+.btn { background: var(--accent); color: white; border: none; padding: 0.5rem 1.2rem; border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; transition: opacity 0.2s; }
+.btn:hover { opacity: 0.85; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-green { background: var(--green); color: #1a1a2e; }
+.btn-outline { background: none; border: 1px solid var(--border); color: var(--text2); }
+.btn-outline:hover { border-color: var(--text2); color: var(--text); }
+.btn-group { display: flex; gap: 0.5rem; margin-top: 0.8rem; }
+input[type="text"], input[type="number"], textarea {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 0.5rem;
+  border-radius: var(--radius); width: 100%; font-family: inherit; font-size: 0.9rem;
+}
+textarea { min-height: 300px; resize: vertical; font-family: monospace; font-size: 0.8rem; }
+.form-row { display: flex; gap: 0.8rem; align-items: end; margin-bottom: 0.8rem; }
+.form-row label { font-size: 0.8rem; color: var(--text2); display: block; margin-bottom: 0.3rem; }
+.form-row .field { flex: 1; }
+.progress-bar { background: var(--bg); border-radius: 4px; height: 24px; overflow: hidden; margin: 0.8rem 0; }
+.progress-bar .fill { height: 100%; background: var(--green); transition: width 0.3s; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 600; }
+.pairing-status { color: var(--text2); font-size: 0.85rem; margin: 0.5rem 0; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+th { color: var(--text2); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+tr:hover { background: rgba(255,255,255,0.02); }
+input[type="range"].zone-slider {
+  -webkit-appearance: none; appearance: none; width: 120px; height: 6px; background: var(--bg);
+  border-radius: 3px; outline: none; vertical-align: middle; margin-right: 0.5rem; cursor: pointer;
+}
+input[type="range"].zone-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--green); cursor: pointer;
+}
+input[type="range"].zone-slider::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%; border: none;
+  background: var(--green); cursor: pointer;
+}
+input[type="range"].zone-slider::-webkit-slider-runnable-track { background: transparent; }
+input[type="range"].zone-slider::-moz-range-track { background: var(--bg); height: 6px; border-radius: 3px; }
+.level-val { font-variant-numeric: tabular-nums; min-width: 3.5em; display: inline-block; }
+.zone-search { margin-bottom: 0.8rem; }
+.msg { padding: 0.6rem 1rem; border-radius: var(--radius); margin: 0.5rem 0; font-size: 0.85rem; }
+.msg.ok { background: rgba(78,204,163,0.15); color: var(--green); }
+.msg.err { background: rgba(233,69,96,0.15); color: var(--red); }
+.badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.05em; vertical-align: middle; }
+.badge-leap { background: rgba(78,204,163,0.2); color: var(--green); }
+.badge-sav { background: rgba(233,69,96,0.2); color: var(--accent); }
+.btn-tiny { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.7rem; cursor: pointer; vertical-align: middle; }
+.btn-tiny:hover { color: var(--text); border-color: var(--text2); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="headerTitle">ra-bridge</h1>
+  <span class="status-dot red" id="statusDot"></span>
+  <div id="siteSelector" style="display:none;margin-left:0.5rem;">
+    <select id="siteSelect" onchange="switchSite(this.value)" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:0.3rem 0.5rem;border-radius:var(--radius);font-size:0.85rem;">
+      <option value="">— select site —</option>
+    </select>
+    <button class="btn btn-outline" onclick="promptNewSite()" style="padding:0.3rem 0.6rem;font-size:0.8rem;margin-left:0.3rem;">+ New</button>
+  </div>
+  <span class="host-label" id="hostLabel">—</span>
+</header>
+
+<nav id="nav">
+  <button data-tab="setup" class="active">Setup</button>
+  <button data-tab="dashboard">Dashboard</button>
+  <button data-tab="zones">Zones</button>
+  <button data-tab="config">Config</button>
+  <button data-tab="export">Export</button>
+  <button data-tab="logs">Logs</button>
+</nav>
+
+<main>
+
+<!-- Setup / Pairing Tab -->
+<div class="tab active" id="tab-setup">
+  <div class="card">
+    <h2>Pair with Processor</h2>
+    <p style="color:var(--text2);font-size:0.85rem;margin-bottom:1rem;">Enter the processor IP and press Start. You'll have 3 minutes to press the pairing button on the processor.</p>
+    <div class="form-row">
+      <div class="field">
+        <label>Processor Host</label>
+        <input type="text" id="pairHost" placeholder="10.20.30.142">
+      </div>
+      <div class="field" style="max-width:100px;">
+        <label>LEAP Port</label>
+        <input type="number" id="pairPort" value="8081">
+      </div>
+      <button class="btn" id="pairBtn" onclick="startPairing()">Start Pairing</button>
+    </div>
+    <div class="progress-bar" id="pairProgress" style="display:none;">
+      <div class="fill" id="pairProgressFill" style="width:0%"></div>
+    </div>
+    <div class="pairing-status" id="pairStatus"></div>
+  </div>
+
+  <div class="card">
+    <h2>Savant Smart Host</h2>
+    <p style="color:var(--text2);font-size:0.85rem;margin-bottom:1rem;">Enter the Savant host IP to discover lighting devices. No pairing needed.</p>
+    <div class="form-row">
+      <div class="field">
+        <label>Savant Host</label>
+        <input type="text" id="savantHost" placeholder="10.11.10.41">
+      </div>
+      <div class="field" style="max-width:100px;">
+        <label>WS Port</label>
+        <input type="number" id="savantPort" value="8480">
+      </div>
+      <div class="field" style="max-width:120px;">
+        <label>Start ID</label>
+        <input type="number" id="savantStartId" value="200">
+      </div>
+      <button class="btn" id="savantDiscoverBtn" onclick="discoverSavant()">Discover</button>
+    </div>
+    <div class="progress-bar" id="savantProgress" style="display:none;">
+      <div class="fill" id="savantProgressFill" style="width:0%"></div>
+    </div>
+    <div class="pairing-status" id="savantStatus"></div>
+  </div>
+</div>
+
+<!-- Dashboard Tab -->
+<div class="tab" id="tab-dashboard">
+  <div class="card">
+    <h2>Bridge Status</h2>
+    <div class="stat-grid">
+      <div class="stat"><div class="value" id="statStatus">—</div><div class="label">Status</div></div>
+      <div class="stat"><div class="value" id="statUptime">—</div><div class="label">Uptime</div></div>
+      <div class="stat"><div class="value" id="statZones">—</div><div class="label">LEAP Zones</div></div>
+      <div class="stat"><div class="value" id="statProcessor">—</div><div class="label">Processor</div></div>
+      <div class="stat"><div class="value" id="statSavantZones">—</div><div class="label">Savant Zones</div></div>
+      <div class="stat"><div class="value" id="statSavant">—</div><div class="label">Savant Host</div></div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-green" id="btnStart" onclick="bridgeAction('start')">Start</button>
+      <button class="btn" onclick="bridgeAction('stop')">Stop</button>
+      <button class="btn btn-outline" onclick="bridgeAction('restart')">Restart</button>
+    </div>
+  </div>
+</div>
+
+<!-- Zones Tab -->
+<div class="tab" id="tab-zones">
+  <div class="card">
+    <h2>Zones</h2>
+    <div class="zone-search">
+      <input type="text" id="zoneFilter" placeholder="Filter zones..." oninput="filterZones()">
+    </div>
+    <table>
+      <thead><tr><th>ID</th><th>Backend</th><th>Name</th><th>Level</th></tr></thead>
+      <tbody id="zoneTable"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Config Tab -->
+<div class="tab" id="tab-config">
+  <div class="card">
+    <h2>Configuration</h2>
+    <textarea id="configEditor" placeholder="Loading..."></textarea>
+    <div class="btn-group">
+      <button class="btn" onclick="saveConfig()">Save Config</button>
+      <button class="btn btn-outline" onclick="reDiscover()">Re-discover Zones</button>
+    </div>
+    <div id="configMsg"></div>
+  </div>
+</div>
+
+<!-- Export Tab -->
+<div class="tab" id="tab-export">
+  <div class="card">
+    <h2>Export</h2>
+    <p style="color:var(--text2);font-size:0.85rem;margin-bottom:1rem;">Download the zone configuration as a RadioRA 2 compatible XML file (DbXmlInfo.xml).</p>
+    <a class="btn btn-green" href="/api/export/xml" download="DbXmlInfo.xml">Download XML</a>
+  </div>
+</div>
+
+<!-- Logs Tab -->
+<div class="tab" id="tab-logs">
+  <div class="card" style="padding:0.8rem;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
+      <h2 style="margin:0;">Logs</h2>
+      <div>
+        <label style="font-size:0.75rem;color:var(--text2);margin-right:0.5rem;"><input type="checkbox" id="logAutoScroll" checked> Auto-scroll</label>
+        <button class="btn btn-outline" onclick="clearLogs()" style="padding:0.2rem 0.6rem;font-size:0.75rem;">Clear</button>
+      </div>
+    </div>
+    <div id="logBox" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);height:60vh;overflow-y:auto;padding:0.5rem;font-family:monospace;font-size:0.75rem;line-height:1.5;white-space:pre-wrap;word-break:break-all;"></div>
+  </div>
+</div>
+
+</main>
+
+<script>
+// Tab switching
+document.querySelectorAll('nav button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// Dev mode state
+let devMode = false;
+let activeSite = null;
+let initialRedirectDone = false;
+
+// Status polling
+let statusInterval;
+async function pollStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    const dot = document.getElementById('statusDot');
+    const s = d.bridge?.state || 'Stopped';
+    dot.className = 'status-dot ' + (s === 'Running' ? 'green' : s === 'Starting' ? 'yellow' : 'red');
+    document.getElementById('hostLabel').textContent = d.processor_host || '—';
+    document.getElementById('statStatus').textContent = s;
+    document.getElementById('statZones').textContent = d.zone_count || '0';
+    document.getElementById('statProcessor').textContent = d.processor_host || '—';
+    document.getElementById('statSavantZones').textContent = d.savant_zone_count || '0';
+    document.getElementById('statSavant').textContent = d.savant_host || '—';
+    // Pre-fill Savant host from config
+    if (d.savant_host && !document.getElementById('savantHost').value) {
+      document.getElementById('savantHost').value = d.savant_host;
+    }
+    if (d.uptime_secs != null) {
+      const h = Math.floor(d.uptime_secs / 3600);
+      const m = Math.floor((d.uptime_secs % 3600) / 60);
+      const sec = d.uptime_secs % 60;
+      document.getElementById('statUptime').textContent = `${h}h ${m}m ${sec}s`;
+    } else {
+      document.getElementById('statUptime').textContent = '—';
+    }
+
+    // Dev mode handling
+    devMode = d.dev_mode || false;
+    activeSite = d.active_site || null;
+    if (devMode) {
+      document.getElementById('siteSelector').style.display = 'flex';
+      document.getElementById('headerTitle').textContent = activeSite ? `ra-bridge [${activeSite}]` : 'ra-bridge';
+      loadSites();
+    }
+
+    // Auto-switch to dashboard on first load if config exists and on setup tab
+    if (!initialRedirectDone && d.has_config && document.querySelector('nav button.active').dataset.tab === 'setup') {
+      initialRedirectDone = true;
+      document.querySelector('nav button[data-tab="dashboard"]').click();
+    }
+  } catch (e) { /* ignore */ }
+}
+statusInterval = setInterval(pollStatus, 2000);
+pollStatus();
+
+// Zone loading
+let allZones = [];
+async function loadZones() {
+  try {
+    const r = await fetch('/api/zones');
+    const d = await r.json();
+    allZones = d.zones || [];
+    renderZones();
+  } catch (e) { /* ignore */ }
+}
+
+function renderZones() {
+  const filter = (document.getElementById('zoneFilter').value || '').toLowerCase();
+  const tbody = document.getElementById('zoneTable');
+  const filtered = allZones.filter(z => !filter || z.name.toLowerCase().includes(filter) || (z.room || '').toLowerCase().includes(filter));
+  tbody.innerHTML = filtered.map(z => {
+    const pct = Math.min(100, Math.max(0, z.level));
+    const badge = z.backend === 'savant'
+      ? '<span class="badge badge-sav">SAV</span>'
+      : '<span class="badge badge-leap">LEAP</span>';
+    return `<tr data-id="${z.ra2_id}">
+      <td>${z.ra2_id}</td>
+      <td>${badge}</td>
+      <td>${escHtml(z.name)}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn-tiny" onclick="setZoneLevel(${z.ra2_id}, 0)">Off</button>
+        <input type="range" class="zone-slider" min="0" max="100" step="0.5" value="${pct}" oninput="onSliderInput(this, ${z.ra2_id})">
+        <button class="btn-tiny" onclick="setZoneLevel(${z.ra2_id}, 100)">On</button>
+        <span class="level-val">${z.level.toFixed(1)}%</span>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function filterZones() { renderZones(); }
+
+// Debounced slider control
+const sliderTimers = {};
+function onSliderInput(el, zoneId) {
+  const val = parseFloat(el.value);
+  // Update text immediately
+  const valSpan = el.parentElement.querySelector('.level-val');
+  if (valSpan) valSpan.textContent = val.toFixed(1) + '%';
+  // Update cached data
+  const z = allZones.find(z => z.ra2_id === zoneId);
+  if (z) z.level = val;
+  // Debounce the POST
+  clearTimeout(sliderTimers[zoneId]);
+  sliderTimers[zoneId] = setTimeout(() => {
+    fetch(`/api/zones/${zoneId}/level`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level: val }),
+    }).catch(() => {});
+  }, 150);
+}
+
+loadZones();
+setInterval(loadZones, 3000);
+
+// SSE for zone events (live updates)
+let zoneEvtSource;
+function connectZoneSSE() {
+  if (zoneEvtSource) zoneEvtSource.close();
+  zoneEvtSource = new EventSource('/api/events');
+  zoneEvtSource.onmessage = (e) => {
+    try {
+      const changes = JSON.parse(e.data);
+      for (const c of changes) {
+        const z = allZones.find(z => z.ra2_id === c.id);
+        if (z) z.level = c.level;
+        // Update table row directly
+        const row = document.querySelector(`tr[data-id="${c.id}"]`);
+        if (row) {
+          const pct = Math.min(100, Math.max(0, c.level));
+          const slider = row.querySelector('.zone-slider');
+          if (slider) slider.value = pct;
+          row.querySelector('.level-val').textContent = c.level.toFixed(1) + '%';
+        }
+      }
+    } catch (err) { /* ignore */ }
+  };
+  zoneEvtSource.onerror = () => {
+    zoneEvtSource.close();
+    setTimeout(connectZoneSSE, 5000);
+  };
+}
+connectZoneSSE();
+
+// Config
+async function loadConfig() {
+  try {
+    const r = await fetch('/api/config');
+    const d = await r.json();
+    document.getElementById('configEditor').value = d.config || '';
+  } catch (e) { /* ignore */ }
+}
+loadConfig();
+
+async function saveConfig() {
+  const toml = document.getElementById('configEditor').value;
+  try {
+    const r = await fetch('/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: toml }),
+    });
+    const d = await r.json();
+    const msg = document.getElementById('configMsg');
+    if (d.ok) {
+      msg.innerHTML = '<div class="msg ok">Config saved</div>';
+    } else {
+      msg.innerHTML = `<div class="msg err">${escHtml(d.error)}</div>`;
+    }
+    setTimeout(() => msg.innerHTML = '', 4000);
+  } catch (e) {
+    document.getElementById('configMsg').innerHTML = `<div class="msg err">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function reDiscover() {
+  try {
+    const r = await fetch('/api/discover', { method: 'POST' });
+    const d = await r.json();
+    const msg = document.getElementById('configMsg');
+    if (d.ok) {
+      msg.innerHTML = `<div class="msg ok">Discovered ${d.zone_count} zones</div>`;
+      loadConfig();
+      loadZones();
+    } else {
+      msg.innerHTML = `<div class="msg err">${escHtml(d.error)}</div>`;
+    }
+    setTimeout(() => msg.innerHTML = '', 4000);
+  } catch (e) {
+    document.getElementById('configMsg').innerHTML = `<div class="msg err">${escHtml(e.message)}</div>`;
+  }
+}
+
+// Bridge control
+async function bridgeAction(action) {
+  try {
+    const r = await fetch(`/api/bridge/${action}`, { method: 'POST' });
+    const d = await r.json();
+    if (!d.ok && d.error) alert(d.error);
+    pollStatus();
+  } catch (e) { alert(e.message); }
+}
+
+// Pairing
+let pairEvtSource;
+function startPairing() {
+  const host = document.getElementById('pairHost').value.trim();
+  const port = parseInt(document.getElementById('pairPort').value) || 8081;
+  if (!host) { alert('Enter a processor host'); return; }
+
+  document.getElementById('pairBtn').disabled = true;
+  document.getElementById('pairProgress').style.display = 'block';
+  document.getElementById('pairStatus').textContent = 'Starting...';
+
+  const pairBody = { host, leap_port: port };
+  if (devMode && activeSite) pairBody.site_name = activeSite;
+
+  fetch('/api/pair', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(pairBody),
+  }).then(r => r.json()).catch(() => {});
+
+  // Connect SSE for progress
+  if (pairEvtSource) pairEvtSource.close();
+  pairEvtSource = new EventSource('/api/pair/status');
+  pairEvtSource.onmessage = (e) => {
+    try {
+      const s = JSON.parse(e.data);
+      const fill = document.getElementById('pairProgressFill');
+      const status = document.getElementById('pairStatus');
+
+      switch (s.state) {
+        case 'GeneratingKeys':
+          status.textContent = 'Generating encryption keys...';
+          fill.style.width = '5%';
+          break;
+        case 'ConnectingToProcessor':
+          status.textContent = 'Connecting to processor...';
+          fill.style.width = '10%';
+          break;
+        case 'WaitingForButtonPress':
+          const pct = Math.min(90, 10 + (s.elapsed / s.timeout) * 80);
+          fill.style.width = pct + '%';
+          const remaining = s.timeout - s.elapsed;
+          status.textContent = `Press the pairing button on the processor... ${remaining}s remaining`;
+          break;
+        case 'ButtonPressed':
+          status.textContent = 'Button pressed!';
+          fill.style.width = '85%';
+          break;
+        case 'ReceivingCertificate':
+          status.textContent = 'Receiving certificate...';
+          fill.style.width = '88%';
+          break;
+        case 'VerifyingPairing':
+          status.textContent = 'Verifying pairing...';
+          fill.style.width = '92%';
+          break;
+        case 'DiscoveringZones':
+          status.textContent = 'Discovering zones...';
+          fill.style.width = '95%';
+          break;
+        case 'Complete':
+          status.textContent = `Pairing complete! Found ${s.zone_count} zones.`;
+          fill.style.width = '100%';
+          fill.style.background = 'var(--green)';
+          document.getElementById('pairBtn').disabled = false;
+          pairEvtSource.close();
+          // Refresh everything
+          pollStatus();
+          loadZones();
+          loadConfig();
+          setTimeout(() => {
+            document.querySelector('nav button[data-tab="dashboard"]').click();
+          }, 2000);
+          break;
+        case 'Failed':
+          status.textContent = 'Failed: ' + s.message;
+          fill.style.width = '100%';
+          fill.style.background = 'var(--red)';
+          document.getElementById('pairBtn').disabled = false;
+          pairEvtSource.close();
+          break;
+      }
+    } catch (err) { /* ignore */ }
+  };
+  pairEvtSource.onerror = () => {
+    document.getElementById('pairBtn').disabled = false;
+  };
+}
+
+// Savant discovery
+async function discoverSavant() {
+  const host = document.getElementById('savantHost').value.trim();
+  const port = parseInt(document.getElementById('savantPort').value) || 8480;
+  const startId = parseInt(document.getElementById('savantStartId').value) || 200;
+  if (!host) { alert('Enter a Savant host'); return; }
+
+  document.getElementById('savantDiscoverBtn').disabled = true;
+  document.getElementById('savantProgress').style.display = 'block';
+  document.getElementById('savantStatus').textContent = 'Connecting...';
+
+  // POST to start discovery
+  fetch('/api/savant/discover', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host, port, start_id: startId }),
+  }).then(r => r.json()).catch(() => {});
+
+  // SSE for progress
+  const evtSrc = new EventSource('/api/savant/discover/status');
+  evtSrc.onmessage = (e) => {
+    const s = JSON.parse(e.data);
+    const fill = document.getElementById('savantProgressFill');
+    const status = document.getElementById('savantStatus');
+    switch (s.state) {
+      case 'Connecting': fill.style.width = '20%'; status.textContent = 'Connecting to Savant...'; break;
+      case 'Enumerating': fill.style.width = '60%'; status.textContent = `Found ${s.device_count} devices...`; break;
+      case 'Complete':
+        fill.style.width = '100%'; fill.style.background = 'var(--green)';
+        status.textContent = `Done! Discovered ${s.zone_count} Savant zones.`;
+        document.getElementById('savantDiscoverBtn').disabled = false;
+        evtSrc.close();
+        pollStatus(); loadZones(); loadConfig();
+        break;
+      case 'Failed':
+        fill.style.width = '100%'; fill.style.background = 'var(--red)';
+        status.textContent = 'Failed: ' + s.message;
+        document.getElementById('savantDiscoverBtn').disabled = false;
+        evtSrc.close();
+        break;
+    }
+  };
+  evtSrc.onerror = () => {
+    document.getElementById('savantDiscoverBtn').disabled = false;
+  };
+}
+
+function setZoneLevel(zoneId, level) {
+  fetch(`/api/zones/${zoneId}/level`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ level }),
+  }).catch(() => {});
+  // Update UI immediately
+  const z = allZones.find(z => z.ra2_id === zoneId);
+  if (z) z.level = level;
+  const row = document.querySelector(`tr[data-id="${zoneId}"]`);
+  if (row) {
+    const slider = row.querySelector('.zone-slider');
+    if (slider) slider.value = level;
+    row.querySelector('.level-val').textContent = level.toFixed(1) + '%';
+  }
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// Site management (dev mode)
+let sitesCache = [];
+async function loadSites() {
+  try {
+    const r = await fetch('/api/sites');
+    const d = await r.json();
+    sitesCache = d.sites || [];
+    const sel = document.getElementById('siteSelect');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— select site —</option>';
+    for (const s of sitesCache) {
+      const opt = document.createElement('option');
+      opt.value = s.name;
+      opt.textContent = s.name + (s.has_config ? '' : ' (unpaired)');
+      if (s.active) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  } catch (e) { /* ignore */ }
+}
+
+async function switchSite(name) {
+  if (!name) return;
+  try {
+    const r = await fetch(`/api/sites/${encodeURIComponent(name)}/activate`, { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      activeSite = name;
+      document.getElementById('headerTitle').textContent = `ra-bridge [${name}]`;
+      pollStatus();
+      loadZones();
+      loadConfig();
+      // Reconnect SSE for new bridge
+      connectZoneSSE();
+    } else {
+      alert(d.error || 'Failed to switch site');
+    }
+  } catch (e) { alert(e.message); }
+}
+
+// Log viewer
+let logEvtSource;
+function connectLogSSE() {
+  if (logEvtSource) logEvtSource.close();
+  logEvtSource = new EventSource('/api/logs');
+  logEvtSource.onmessage = (e) => {
+    const box = document.getElementById('logBox');
+    const line = document.createElement('div');
+    // Color by level
+    const text = e.data;
+    if (text.startsWith('ERROR')) line.style.color = 'var(--red)';
+    else if (text.startsWith('WARN')) line.style.color = 'var(--yellow)';
+    else if (text.startsWith('DEBUG') || text.startsWith('TRACE')) line.style.color = 'var(--text2)';
+    else line.style.color = 'var(--green)';
+    line.textContent = text;
+    box.appendChild(line);
+    // Cap at 500 lines
+    while (box.children.length > 500) box.removeChild(box.firstChild);
+    if (document.getElementById('logAutoScroll').checked) {
+      box.scrollTop = box.scrollHeight;
+    }
+  };
+  logEvtSource.onerror = () => {
+    logEvtSource.close();
+    setTimeout(connectLogSSE, 5000);
+  };
+}
+connectLogSSE();
+
+function clearLogs() {
+  document.getElementById('logBox').innerHTML = '';
+}
+
+async function promptNewSite() {
+  const name = prompt('New site name:');
+  if (!name || !name.trim()) return;
+  try {
+    const r = await fetch('/api/sites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      // Auto-activate the new site and show setup tab
+      await switchSite(d.name);
+      document.querySelector('nav button[data-tab="setup"]').click();
+    } else {
+      alert(d.error || 'Failed to create site');
+    }
+  } catch (e) { alert(e.message); }
+}
+</script>
+</body>
+</html>
