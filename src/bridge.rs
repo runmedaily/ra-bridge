@@ -178,18 +178,19 @@ pub async fn start(
                         } else if savant_id_map.ra2_to_savant(id).is_some() {
                             if let Some(ref tx) = savant_req_tx {
                                 if let Some(req) = savant_translator::ra2_to_savant(&cmd, &savant_id_map) {
+                                    info!("bridge → Savant: ra2_id={} → {:?}", id, req);
                                     if let Err(e) = tx.send(req).await {
                                         warn!("Failed to send Savant request: {}", e);
                                     }
                                 }
                             }
                         } else {
-                            warn!("No backend for ra2_id {}", id);
+                            warn!("bridge: no backend for ra2_id {}", id);
                         }
                     } else {
                         // Monitoring commands — log them
                         if let Ra2Command::Monitoring { mon_type, enable } = &cmd {
-                            info!("Monitoring type {} {}",
+                            info!("bridge: monitoring type {} {}",
                                 mon_type, if *enable { "enabled" } else { "disabled" });
                         }
                     }

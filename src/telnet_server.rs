@@ -56,7 +56,9 @@ async fn handle_client(
                     event = event_rx.recv() => {
                         match event {
                             Ok(ev) => {
-                                let line = format!("{}\r\n", ra2_protocol::format_event(&ev));
+                                let formatted = ra2_protocol::format_event(&ev);
+                                info!("telnet → HA: {}", formatted);
+                                let line = format!("{}\r\n", formatted);
                                 if writer.write_all(line.as_bytes()).await.is_err() {
                                     break;
                                 }
@@ -87,7 +89,10 @@ async fn handle_client(
         }
 
         if let Some(cmd) = ra2_protocol::parse_command(&line) {
+            info!("HA → telnet: {:?}", cmd);
             cmd_tx.send(cmd).await?;
+        } else if !line.trim().is_empty() {
+            warn!("HA → telnet: unparsed line: {:?}", line.trim());
         }
     }
 

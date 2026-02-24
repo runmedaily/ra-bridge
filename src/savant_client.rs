@@ -216,12 +216,34 @@ fn parse_state_body(
     zones: &[SavantZoneMapping],
     event_tx: &broadcast::Sender<SavantEvent>,
 ) {
-    // Documented format: { "state": "module.001", "value": "0,0,-1,-1,..." }
-    // Extract address from "state" field ("module.001" → "001") or from URI
-    let address = body
-        .get("state")
-        .and_then(|s| s.as_str())
-        .and_then(|s| s.strip_prefix("module."))
+    let state_str = body.get("state").and_then(|s| s.as_str()).unwrap_or("");
+
+    // Handle "load.XXXX" format (set echo / set confirmation)
+    // Reverse the hex key: load_key = (address << 16) | offset
+    if let Some(hex_key) = state_str.strip_prefix("load.") {
+        if let Ok(load_key) = u32::from_str_radix(hex_key, 16) {
+            let int_address = load_key >> 16;
+            let load_offset = (load_key & 1023) as usize;
+            let address = format!("{:03X}", int_address);
+
+            // Parse level from value: "100%.0" → 100.0, or just "100.0"
+            if let Some(value_str) = body.get("value").and_then(|v| v.as_str()) {
+                let numeric = value_str.replace('%', "");
+                // Take the part before the dot-separated fade value
+                let level_str = numeric.split('.').next().unwrap_or(&numeric);
+                if let Ok(level) = level_str.trim().parse::<f64>() {
+                    info!("Savant set-echo: load.{} → addr={} offset={} level={:.1}%",
+                        hex_key, address, load_offset, level);
+                    emit_if_tracked(&address, load_offset, level, zones, event_tx);
+                }
+            }
+        }
+        return;
+    }
+
+    // Handle "module.XXX" format (poll response) or URI-based address
+    let address = state_str
+        .strip_prefix("module.")
         .map(|s| s.to_string())
         .or_else(|| {
             uri.strip_prefix("state/module/")
