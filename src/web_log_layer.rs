@@ -45,13 +45,19 @@ impl<S: Subscriber> Layer<S> for WebLogLayer {
         let level = metadata.level();
         let target = metadata.target();
 
+        // Only show ra_bridge logs at INFO+ in the web UI
+        if !target.starts_with("ra_bridge") {
+            return;
+        }
+        if *level > tracing::Level::INFO {
+            return;
+        }
+
         let mut visitor = MessageVisitor::new();
         event.record(&mut visitor);
 
-        let mut line = format!("{} {} {}", level, target, visitor.message);
-        for (k, v) in &visitor.fields {
-            line.push_str(&format!(" {}={}", k, v));
-        }
+        // Clean, pipeline-focused format for web UI
+        let line = visitor.message.trim_matches('"').to_string();
 
         // Best-effort send — if no subscribers, just drop
         let _ = self.tx.send(line);
