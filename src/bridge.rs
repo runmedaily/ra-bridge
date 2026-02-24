@@ -166,6 +166,14 @@ pub async fn start(
                     };
 
                     if let Some(id) = id {
+                        // Immediate echo for SetOutput — HA expects fast ~OUTPUT confirmation
+                        if let Ra2Command::SetOutput { id: set_id, level, .. } = &cmd {
+                            let echo = Ra2Event::OutputLevel { id: *set_id, level: *level };
+                            info!("bridge → HA (echo): ~OUTPUT,{},1,{:.2}", set_id, level);
+                            let _ = ra2_event_tx.send(echo);
+                            zone_levels.write().await.insert(*set_id, *level);
+                        }
+
                         // Route to the correct backend based on ra2_id ownership
                         if leap_id_map.ra2_to_leap(id).is_some() {
                             if let Some(ref tx) = leap_req_tx {
