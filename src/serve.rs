@@ -55,6 +55,7 @@ pub async fn serve(config_path: PathBuf, certs_dir: PathBuf, web_port: u16, log_
                 *state.savant_req_tx.write().await = handle.savant_req_tx;
                 *state.bridge_shutdown.write().await = Some(handle.shutdown_tx);
                 *state.bridge_started_at.write().await = Some(tokio::time::Instant::now());
+                let _ = state.bridge_status.send(BridgeStatus::Running);
                 info!("Bridge auto-started");
             }
             Err(e) => {
@@ -84,6 +85,7 @@ pub async fn serve(config_path: PathBuf, certs_dir: PathBuf, web_port: u16, log_
                     *state.savant_req_tx.write().await = handle.savant_req_tx;
                     *state.bridge_shutdown.write().await = Some(handle.shutdown_tx);
                     *state.bridge_started_at.write().await = Some(tokio::time::Instant::now());
+                    let _ = state.bridge_status.send(BridgeStatus::Running);
                     info!("Savant-only bridge auto-started");
                 }
                 Err(e) => {
@@ -224,6 +226,7 @@ pub async fn activate_site(state: &AppState, site_name: &str) -> Result<()> {
                 *state.savant_req_tx.write().await = handle.savant_req_tx;
                 *state.bridge_shutdown.write().await = Some(handle.shutdown_tx);
                 *state.bridge_started_at.write().await = Some(tokio::time::Instant::now());
+                let _ = state.bridge_status.send(BridgeStatus::Running);
                 info!("Site '{}': bridge started", site_name);
             }
             Err(e) => {

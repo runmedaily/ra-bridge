@@ -405,6 +405,7 @@ pub async fn bridge_start(State(state): State<Arc<AppState>>) -> Response {
             *state.savant_req_tx.write().await = handle.savant_req_tx;
             *state.bridge_shutdown.write().await = Some(handle.shutdown_tx);
             *state.bridge_started_at.write().await = Some(tokio::time::Instant::now());
+            let _ = state.bridge_status.send(BridgeStatus::Running);
             Json(serde_json::json!({ "ok": true })).into_response()
         }
         Err(e) => {
