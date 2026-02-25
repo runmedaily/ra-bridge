@@ -148,7 +148,7 @@ pub async fn start(
     };
 
     let _ = bridge_status_tx.send(crate::state::BridgeStatus::Running);
-    info!("Bridge running");
+    info!("Bridge status: Running");
 
     // Clone senders for the handle before moving into spawn
     let handle_leap_req_tx = leap_req_tx.clone();
@@ -198,10 +198,20 @@ pub async fn start(
                             warn!("bridge: no backend for ra2_id {}", id);
                         }
                     } else {
-                        // Monitoring commands — log them
+                        // Monitoring commands
                         if let Ra2Command::Monitoring { mon_type, enable } = &cmd {
                             info!("bridge: monitoring type {} {}",
                                 mon_type, if *enable { "enabled" } else { "disabled" });
+                            // Sync current state to HA on monitoring enable
+                            if *mon_type == 5 && *enable {
+                                let levels = zone_levels.read().await.clone();
+                                for (id, level) in &levels {
+                                    let _ = ra2_event_tx.send(Ra2Event::OutputLevel {
+                                        id: *id, level: *level,
+                                    });
+                                }
+                                info!("bridge: synced {} zone levels to telnet", levels.len());
+                            }
                         }
                     }
                 }
