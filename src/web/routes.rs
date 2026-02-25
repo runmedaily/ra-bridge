@@ -17,7 +17,13 @@ pub async fn index() -> Html<&'static str> {
 }
 
 pub async fn status(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
-    let bridge_status = state.bridge_status.borrow().clone();
+    // Derive running status from actual state — the watch channel is unreliable
+    // due to races between old/new bridge instances on restart.
+    let bridge_status = if state.bridge_shutdown.read().await.is_some() {
+        BridgeStatus::Running
+    } else {
+        state.bridge_status.borrow().clone()
+    };
     let config = state.config.read().await;
     let zone_count = config.as_ref().map(|c| c.zones.len()).unwrap_or(0);
     let savant_zone_count = config.as_ref().map(|c| c.savant_zones.len()).unwrap_or(0);
